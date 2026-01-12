@@ -35,7 +35,7 @@ if 'sel_prec' not in st.session_state:
 
 # 3. HEADER & NAVIGATION
 st.title("Atlanta Census 2020 Drill-Down Dashboard")
-nav_cols = st.columns([1, 1, 1, 4])
+nav_cols = st.columns([2, 2, 2])
 
 with nav_cols[0]:
     if st.button("🏙️ City View"):
@@ -87,39 +87,51 @@ else:
 m = folium.Map(location=map_center, zoom_start=zoom, tiles='OpenStreetMap', control_scale=True)
 
 if not display_gdf.empty:
-    # 1. Ensure numeric data
+    # 1. Force numeric and handle missing data
     display_gdf['POP20'] = pd.to_numeric(display_gdf['POP20'], errors='coerce').fillna(0)
     
+    # 2. Get min and max
     vmin = float(display_gdf['POP20'].min())
     vmax = float(display_gdf['POP20'].max())
 
-    # 2. Create the Index Grid
-    # We use unique to avoid "Duplicate index" errors if data is sparse
+    # --- SAFETY BUFFER: Handle ZeroDivisionError ---
+    # If all values are the same (e.g., 0 or 100), create a dummy range [val, val + 1]
+    if vmin == vmax:
+        vmax = vmin + 1
+    
+    # 3. Create Index Steps
+    # Use np.unique to ensure we don't have duplicate steps
     index_steps = np.unique(np.linspace(vmin, vmax, 6)).tolist()
     
+    # Second safety check: if linspace + unique resulted in only 1 value
     if len(index_steps) < 2:
-        # Fallback if all values are identical (e.g., all are 0)
-        index_steps = [vmin, vmin + 1]
+        index_steps = [vmin, vmax]
 
-    # 3. Create a Linear map FIRST, then convert to Step
-    # Use 'YlOrRd' (Yellow-Orange-Red)
+    # 4. Build Colormap
+    # Start with a fixed range base map to avoid scale conflicts
     base_map = cm.linear.YlOrRd_09.scale(vmin, vmax)
     colormap = base_map.to_step(index=index_steps)
     
-    colormap.caption = f'Population Distribution ({st.session_state.view_level})'
+    colormap.caption = f'Population ({st.session_state.view_level})'
     colormap.add_to(m)
     
-    # 4. Define Style Function
+    # 5. Define Style Function with internal safety
     def style_func(feature):
-        pop = feature['properties'].get('POP20', 0)
+        pop = feature['properties'].get('POP20')
+        # Handle None or non-numeric properties safely
+        try:
+            val = float(pop) if pop is not None else 0.0
+        except (ValueError, TypeError):
+            val = 0.0
+            
         return {
-            'fillColor': colormap(pop),
+            'fillColor': colormap(val),
             'color': 'black',
             'weight': 1 if st.session_state.view_level != 'Block' else 0.5,
             'fillOpacity': 0.7
         }
 
-    # 5. Add GeoJson to map
+    # 6. Add GeoJson
     folium.GeoJson(
         display_gdf,
         style_function=style_func,
@@ -137,16 +149,27 @@ if not display_gdf.empty:
         annotation_field = 'BLOCKCE20'
     for _, row in display_gdf.iterrows():
         if row.geometry:
-            c = row.geometry.centroid
+            # if st.session_state.view_level == 'Block', we use INTPTLAT20 and INTPTLON20
+            if st.session_state.view_level == 'Block':
+                location = [row['INTPTLAT20'], row['INTPTLON20']]
+            else:
+                c = row.geometry.centroid
+                location = [c.y, c.x]
             folium.Marker(
-                location=[c.y, c.x],
+                location=location,
                 icon=folium.DivIcon(
                     icon_size=(100,20),
                     icon_anchor=(50,10),
-                    html=f"""<div style="font-size: 12pt; color: black; font-weight: bold; 
-                            text-align: center; text-shadow: 2px 2px 0px #fff, -2px -2px 0px #fff, 
-                            2px -2px 0px #fff, -2px 2px 0px #fff;">
-                            {row[annotation_field]}</div>"""
+                    html=f"""<div style="
+                            font-size: 10pt; 
+                            color: black; 
+                            font-weight: bold; 
+                            text-align: center; 
+                            pointer-events: none; 
+                            user-select: none;
+                            text-shadow: 2px 2px 0px #fff, -2px -2px 0px #fff, 2px -2px 0px #fff, -2px 2px 0px #fff;">
+                            {row[annotation_field] if not pd.isna(row[annotation_field]) else ''}
+                            </div>"""
                 )
             ).add_to(m)
 
@@ -154,7 +177,7 @@ if not display_gdf.empty:
 map_output = st_folium(
     m, 
     width="100%", 
-    height=600, 
+    height=700, 
     key=f"map_{st.session_state.view_level}", # Unique key per level
     returned_objects=["last_active_drawing"]
 )
@@ -179,6 +202,9 @@ if st.session_state.view_level == 'Block':
     if not display_gdf.empty:
         # Create a clean version for the table (no geometry)
         df_table = display_gdf.drop(columns='geometry')
+        df_table = df_table[['GEOID20', 'COUNCIL_DISTRICT_ID', 'DISTRICT', 'NAME20', 'HOUSING20', 'POP20']]
+        # sort by POP20 ascending
+        df_table = df_table.sort_values(by='POP20', ascending=True)
         st.dataframe(df_table, use_container_width=True)
         
         # CSV Download Button
