@@ -17,6 +17,20 @@ def load_base_data():
     parcels = gpd.read_file("data/Atlanta_Parcels_Level4.geojson").to_crs(epsg=4326)
     return districts, precincts, blocks, parcels
 
+# Performance: Only load parcels matching the current scope
+@st.cache_data
+def load_filtered_parcels(council_id=None, precinct_id=None, block_id=None):
+    # In production, use 'pyogrio' engine or read from a database for speed
+    gdf = gpd.read_file("data/Atlanta_Parcels_Level4.geojson").to_crs(epsg=4326)
+    
+    if block_id:
+        return gdf[gdf['BLOCK_GEOID20'].astype(str) == str(block_id)]
+    if precinct_id:
+        return gdf[gdf['PRECINCT_UNIQUE_ID'].astype(str) == str(precinct_id)]
+    if council_id:
+        return gdf[gdf['COUNCIL'].astype(str) == str(council_id)]
+    return gdf
+
 try:
     dist_gdf, prec_gdf, block_gdf, parcels_gdf = load_base_data()
 except Exception as e:
