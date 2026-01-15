@@ -12,26 +12,13 @@ st.set_page_config(layout="wide", page_title="Atlanta Census 2020 Dashboard")
 @st.cache_data
 def load_base_data():
     districts = gpd.read_file("data/Atlanta_Council_District.geojson").to_crs(epsg=4326)
-    precincts = gpd.read_file("data/Atlanta_Precincts_with_council_ID.geojson").to_crs(epsg=4326)
+    precincts = gpd.read_file("data/Atlanta_Precincts_Census_Assigned.geojson").to_crs(epsg=4326)
     blocks = gpd.read_file("data/Atlanta_Blocks_Master_Clean.geojson").to_crs(epsg=4326)
-    return districts, precincts, blocks
-
-# Performance: Only load parcels matching the current scope
-@st.cache_data
-def load_filtered_parcels(council_id=None, precinct_id=None, block_id=None):
-    # In production, use 'pyogrio' engine or read from a database for speed
-    gdf = gpd.read_file("data/Atlanta_Parcels_Level4.geojson").to_crs(epsg=4326)
-    
-    if block_id:
-        return gdf[gdf['BLOCK_GEOID20'].astype(str) == str(block_id)]
-    if precinct_id:
-        return gdf[gdf['PRECINCT_UNIQUE_ID'].astype(str) == str(precinct_id)]
-    if council_id:
-        return gdf[gdf['COUNCIL'].astype(str) == str(council_id)]
-    return gdf
+    parcels = gpd.read_file("data/Atlanta_Parcels_Level4.geojson").to_crs(epsg=4326)
+    return districts, precincts, blocks, parcels
 
 try:
-    dist_gdf, prec_gdf, block_gdf = load_base_data()
+    dist_gdf, prec_gdf, block_gdf, parcels_gdf = load_base_data()
 except Exception as e:
     st.error(f"Error loading GeoJSON files: {e}")
     st.stop()
@@ -95,7 +82,7 @@ elif st.session_state.view_level == 'Block':
 
 elif st.session_state.view_level == 'Parcel':
     # PRE-FILTERING LEVEL 4: Only load parcels for the specific block
-    display_gdf = load_filtered_parcels(block_id=st.session_state.sel_block)
+    display_gdf = parcels_gdf[parcels_gdf['BLOCK_GEOID20'].astype(str) == str(st.session_state.sel_block)]
     zoom = 18
     tooltip_fields = ['PSTLADDRESS', 'BLOCK_GEOID20'] # Adjust based on your parcel attributes
 
