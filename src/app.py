@@ -6,6 +6,33 @@ import numpy as np
 import geopandas as gpd
 from streamlit_folium import st_folium
 
+CENSUS_METRIC_MAPPING = {
+    "TSRR001_001": "Internet Self-Response rate at the start of NRFU in the 2020 Census",
+    "TSRR001_002": "Paper Self-Response rate at the start of NRFU in the 2020 Census",
+    "TSRR001_003": "CQA Self-Response rate at the start of NRFU in the 2020 Census",
+    "TSRR001_004": "Total (Internet+Paper+CQA) Self-Response rate at the start of NRFU in the 2020 Census",
+    "TSRR001_005": "Final Internet Self-Response rate in the 2020 Census",
+    "TSRR001_006": "Final Paper Self-Response rate in the 2020 Census",
+    "TSRR001_007": "Final CQA Self-Response rate in the 2020 Census",
+    "TSRR001_008": "Final Total (Internet+Paper+CQA) Self-Response rate in the 2020 Census",
+    "TSRR001_009": "Internet Return rate at the start of NRFU in the 2020 Census",
+    "TSRR001_010": "Paper Return rate at the start of NRFU in the 2020 Census",
+    "TSRR001_011": "CQA Return rate at the start of NRFU in the 2020 Census",
+    "TSRR001_012": "Total (Internet+Paper+CQA) Return rate at the start of NRFU in the 2020 Census",
+    "TSRR001_013": "Final Internet Return rate in the 2020 Census",
+    "TSRR001_014": "Final Paper Return rate in the 2020 Census",
+    "TSRR001_015": "Final CQA Return rate in the 2020 Census",
+    "TSRR001_016": "Final Total (Internet+Paper+CQA) Return rate in the 2020 Census",
+    "TSRR001_017": "UAA rate at the start of NRFU in the 2020 Census",
+    "TSRR001_018": "Final UAA rate in the 2020 Census",
+    "TSRR001_019": "Self-response rate at the NRFU cut date in the 2010 Census",
+    "TSRR001_020": "Final Self-Response rate in the 2010 Census",
+    "TSRR001_021": "Return rate at the NRFU cut date in the 2010 Census",
+    "TSRR001_022": "Final Return rate in the 2010 Census",
+    "TSRR001_023": "UAA rate at the NRFU cut date in the 2010 Census",
+    "TSRR001_024": "Final UAA rate in the 2010 Census"
+}
+
 st.set_page_config(layout="wide", page_title="Atlanta Census 2020 Dashboard")
 
 # 1. LOAD DATA (Optimized with Lazy Loading for Level 4)
@@ -148,7 +175,7 @@ elif st.session_state.view_level == 'Parcel':
     # PRE-FILTERING LEVEL 4: Only load parcels for the specific block
     display_gdf = parcels_gdf[parcels_gdf['BLOCK_GEOID20'].astype(str) == str(st.session_state.sel_block)]
     zoom = 18
-    tooltip_fields = ['PSTLADDRESS', 'BLOCK_GEOID20'] # Adjust based on your parcel attributes
+    tooltip_fields = ['PSTLADDRESS'] # Adjust based on your parcel attributes
 
 # Safety check
 if display_gdf.empty:
@@ -214,27 +241,38 @@ if map_output and map_output.get("last_active_drawing"):
         st.session_state.view_level = 'Parcel'
         st.rerun()
 
-# 8. DATA TABLE (Selection Drill-down)
-if st.session_state.view_level in ['Precinct', 'Block', 'Parcel']:
+# 8. DATA TABLE (Enabled for all levels except Level 4)
+# Added 'District' to the list below
+if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
     st.subheader(f"Interactive List View: {st.session_state.view_level}")
     
-    # Clean up the table for display
+    # 1. Determine the mode (Disable only at Level 4)
+    is_level_4 = (st.session_state.view_level == 'Parcel')
+    mode = "single-row" if not is_level_4 else None
+    select_behavior = "rerun" if not is_level_4 else "ignore"
+    
+    # Drop geometry for table display performance
     df_table = display_gdf.drop(columns='geometry')
     
-    # Corrected selection_mode with hyphen
     event = st.dataframe(
         df_table, 
         use_container_width=True, 
-        on_select="rerun", 
-        selection_mode="single-row" 
+        on_select=select_behavior,
+        selection_mode=mode 
     )
     
-    # Handle Table Selection Drill-down
-    if event.selection.rows:
+    # 2. Immediate Drill-Down Logic
+    if mode == "single-row" and event.selection.rows:
         selected_index = event.selection.rows[0]
         selected_row = display_gdf.iloc[selected_index]
         
-        if st.session_state.view_level == 'Precinct':
+        if st.session_state.view_level == 'District':
+            # Use 'NAME' or 'COUNCIL_DISTRICT_ID' based on your District GeoJSON properties
+            st.session_state.sel_dist = selected_row['NAME'] 
+            st.session_state.view_level = 'Precinct'
+            st.rerun()
+
+        elif st.session_state.view_level == 'Precinct':
             st.session_state.sel_prec = selected_row['PRECINCT_UNIQUE_ID']
             st.session_state.view_level = 'Block'
             st.rerun()
@@ -243,3 +281,8 @@ if st.session_state.view_level in ['Precinct', 'Block', 'Parcel']:
             st.session_state.sel_block = selected_row['GEOID20']
             st.session_state.view_level = 'Parcel'
             st.rerun()
+
+    elif not is_level_4:
+        st.info(f"💡 Select a row in the table or click the map to drill down.")
+    else:
+        st.caption("📍 Navigation end. Displaying all parcels in the selected block.")
