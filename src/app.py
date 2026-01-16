@@ -11,7 +11,7 @@ st.set_page_config(layout="wide", page_title="Atlanta Census 2020 Dashboard")
 # 1. LOAD DATA (Optimized with Lazy Loading for Level 4)
 @st.cache_data
 def load_base_data():
-    districts = gpd.read_file("data/Atlanta_Council_District.geojson").to_crs(epsg=4326)
+    districts = gpd.read_file("data/Atlanta_Council_Census_Aggregated.geojson").to_crs(epsg=4326)
     precincts = gpd.read_file("data/Atlanta_Precincts_Census_Assigned.geojson").to_crs(epsg=4326)
     blocks = gpd.read_file("data/Atlanta_Blocks_Master_Clean.geojson").to_crs(epsg=4326)
     parcels = gpd.read_file("data/Atlanta_Parcels_Level4.geojson").to_crs(epsg=4326)
@@ -81,13 +81,63 @@ st.divider()
 if st.session_state.view_level == 'District':
     display_gdf = dist_gdf
     zoom = 11
-    tooltip_fields = ['NAME', 'POP20']
+    tooltip_fields = ['NAME', 'POP20',
+        'TSRR001_001',
+        'TSRR001_002',
+        'TSRR001_003',
+        'TSRR001_004',
+        'TSRR001_005',
+        'TSRR001_006',
+        'TSRR001_007',
+        'TSRR001_008',
+        'TSRR001_009',
+        'TSRR001_010',
+        'TSRR001_011',
+        'TSRR001_012',
+        'TSRR001_013',
+        'TSRR001_014',
+        'TSRR001_015',
+        'TSRR001_016',
+        'TSRR001_017',
+        'TSRR001_018',
+        'TSRR001_019',
+        'TSRR001_020',
+        'TSRR001_021',
+        'TSRR001_022',
+        'TSRR001_023',
+        'TSRR001_024',
+    ]
     map_center = [33.749, -84.388]
 
 elif st.session_state.view_level == 'Precinct':
     display_gdf = prec_gdf[prec_gdf['COUNCIL_DISTRICT_ID'].astype(str) == str(st.session_state.sel_dist)]
     zoom = 13
-    tooltip_fields = ['PRECINCT_UNIQUE_ID', 'POP20']
+    tooltip_fields = ['PRECINCT_UNIQUE_ID', 'POP20',
+        'TSRR001_001',
+        'TSRR001_002',
+        'TSRR001_003',
+        'TSRR001_004',
+        'TSRR001_005',
+        'TSRR001_006',
+        'TSRR001_007',
+        'TSRR001_008',
+        'TSRR001_009',
+        'TSRR001_010',
+        'TSRR001_011',
+        'TSRR001_012',
+        'TSRR001_013',
+        'TSRR001_014',
+        'TSRR001_015',
+        'TSRR001_016',
+        'TSRR001_017',
+        'TSRR001_018',
+        'TSRR001_019',
+        'TSRR001_020',
+        'TSRR001_021',
+        'TSRR001_022',
+        'TSRR001_023',
+        'TSRR001_024'
+    ]
     
 elif st.session_state.view_level == 'Block':
     display_gdf = block_gdf[block_gdf['PRECINCT_UNIQUE_ID'] == st.session_state.sel_prec]
