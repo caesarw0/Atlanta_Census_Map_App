@@ -42,6 +42,16 @@ def load_base_data():
     precincts = gpd.read_file("data/Atlanta_Precincts_Census_Assigned.geojson").to_crs(epsg=4326)
     blocks = gpd.read_file("data/Atlanta_Blocks_Master_Clean.geojson").to_crs(epsg=4326)
     parcels = gpd.read_file("data/Atlanta_Parcels_Level4.geojson").to_crs(epsg=4326)
+
+    for gdf in [districts, precincts]:
+        # 1. Round numeric values
+        for col in CENSUS_METRIC_MAPPING.keys():
+            if col in gdf.columns:
+                gdf[col] = pd.to_numeric(gdf[col], errors='coerce').round(1)
+        
+        # 2. Rename columns globally
+        # We only rename columns that exist in the CENSUS_METRIC_MAPPING
+        gdf.rename(columns=CENSUS_METRIC_MAPPING, inplace=True)
     return districts, precincts, blocks, parcels
 
 # Performance: Only load parcels matching the current scope
@@ -103,68 +113,18 @@ if st.session_state.sel_block:
         st.info(f"🏠 Block {st.session_state.sel_block[-4:]}")
 
 st.divider()
-
+census_display_names = list(CENSUS_METRIC_MAPPING.values())
 # 4. FILTERING & MAP PARAMETERS
 if st.session_state.view_level == 'District':
     display_gdf = dist_gdf
     zoom = 11
-    tooltip_fields = ['NAME', 'POP20',
-        'TSRR001_001',
-        'TSRR001_002',
-        'TSRR001_003',
-        'TSRR001_004',
-        'TSRR001_005',
-        'TSRR001_006',
-        'TSRR001_007',
-        'TSRR001_008',
-        'TSRR001_009',
-        'TSRR001_010',
-        'TSRR001_011',
-        'TSRR001_012',
-        'TSRR001_013',
-        'TSRR001_014',
-        'TSRR001_015',
-        'TSRR001_016',
-        'TSRR001_017',
-        'TSRR001_018',
-        'TSRR001_019',
-        'TSRR001_020',
-        'TSRR001_021',
-        'TSRR001_022',
-        'TSRR001_023',
-        'TSRR001_024',
-    ]
+    tooltip_fields = ['NAME', 'POP20', CENSUS_METRIC_MAPPING['TSRR001_008']]
     map_center = [33.749, -84.388]
 
 elif st.session_state.view_level == 'Precinct':
     display_gdf = prec_gdf[prec_gdf['COUNCIL_DISTRICT_ID'].astype(str) == str(st.session_state.sel_dist)]
     zoom = 13
-    tooltip_fields = ['PRECINCT_UNIQUE_ID', 'POP20',
-        'TSRR001_001',
-        'TSRR001_002',
-        'TSRR001_003',
-        'TSRR001_004',
-        'TSRR001_005',
-        'TSRR001_006',
-        'TSRR001_007',
-        'TSRR001_008',
-        'TSRR001_009',
-        'TSRR001_010',
-        'TSRR001_011',
-        'TSRR001_012',
-        'TSRR001_013',
-        'TSRR001_014',
-        'TSRR001_015',
-        'TSRR001_016',
-        'TSRR001_017',
-        'TSRR001_018',
-        'TSRR001_019',
-        'TSRR001_020',
-        'TSRR001_021',
-        'TSRR001_022',
-        'TSRR001_023',
-        'TSRR001_024'
-    ]
+    tooltip_fields = ['PRECINCT_UNIQUE_ID', 'POP20', CENSUS_METRIC_MAPPING['TSRR001_008']]
     
 elif st.session_state.view_level == 'Block':
     display_gdf = block_gdf[block_gdf['PRECINCT_UNIQUE_ID'] == st.session_state.sel_prec]
@@ -241,37 +201,79 @@ if map_output and map_output.get("last_active_drawing"):
         st.session_state.view_level = 'Parcel'
         st.rerun()
 
-# 8. DATA TABLE (Enabled for all levels except Level 4)
-# Added 'District' to the list below
+# 8. DATA TABLE (Conditional Columns with Ascending Sort)
 if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
     st.subheader(f"Interactive List View: {st.session_state.view_level}")
+    target_sort_name = CENSUS_METRIC_MAPPING['TSRR001_008']
+    # 1. Setup Column Logic and Rename Dictionary
+    if st.session_state.view_level == 'District':
+        cols_to_show = ['NAME'] + census_display_names
+        sort_col = target_sort_name
+        rename_dict = {
+            'NAME': 'Council District',
+            **CENSUS_METRIC_MAPPING
+        }
     
-    # 1. Determine the mode (Disable only at Level 4)
+    elif st.session_state.view_level == 'Precinct':
+        cols_to_show = ['PRECINCT_UNIQUE_ID', 'POP20'] + census_display_names
+        sort_col = target_sort_name
+        rename_dict = {
+            'POP20': 'Population',
+            **CENSUS_METRIC_MAPPING
+        }
+    
+    elif st.session_state.view_level == 'Block':
+        cols_to_show = ['GEOID20', 'POP20']
+        sort_col = 'POP20' # Sort blocks by population instead
+        rename_dict = {'POP20': 'Population'}
+        
+    else: # Parcel / Level 4
+        cols_to_show = ['PSTLADDRESS', 'BLOCK_GEOID20']
+        sort_col = 'PSTLADDRESS'
+        rename_dict = {'PSTLADDRESS': 'Property Address', 'BLOCK_GEOID20': 'Parent Block ID'}
+
+    # 2. Filter, Sort, and Rename
+    df_visible = display_gdf[cols_to_show].copy()
+    
+    # Sort while columns still have original names
+    df_visible = df_visible.sort_values(by=sort_col, ascending=True)
+
+    # 3. Render Table with Hidden Technical Columns
     is_level_4 = (st.session_state.view_level == 'Parcel')
     mode = "single-row" if not is_level_4 else None
-    select_behavior = "rerun" if not is_level_4 else "ignore"
     
-    # Drop geometry for table display performance
-    df_table = display_gdf.drop(columns='geometry')
-    
+    # We use st.dataframe's column_config to rename columns for display 
+    # without actually changing the underlying dataframe column names.
     event = st.dataframe(
-        df_table, 
+        df_visible, 
         use_container_width=True, 
-        on_select=select_behavior,
-        selection_mode=mode 
+        on_select="rerun" if not is_level_4 else "ignore",
+        selection_mode=mode,
+        hide_index=True,
+        column_config={
+            "NAME": "Council District",
+            # "PRECINCT_UNIQUE_ID": "Precinct ID",
+            "GEOID20": "Block Group ID",
+            "POP20": "Population",
+            "TOTAL_POP20": "Total Population",
+            "PSTLADDRESS": "Address",
+            "BLOCK_GEOID20": "Parent Block"
+        }
     )
-    
-    # 2. Immediate Drill-Down Logic
+
+    # 4. Drill-Down Logic (Now works because names are stable)
     if mode == "single-row" and event.selection.rows:
-        selected_index = event.selection.rows[0]
-        selected_row = display_gdf.iloc[selected_index]
+        selected_row_index = event.selection.rows[0]
+        
+        # Get the technical data from the visible dataframe
+        # df_visible still has columns like 'PRECINCT_UNIQUE_ID'
+        selected_row = df_visible.iloc[selected_row_index]
         
         if st.session_state.view_level == 'District':
-            # Use 'NAME' or 'COUNCIL_DISTRICT_ID' based on your District GeoJSON properties
-            st.session_state.sel_dist = selected_row['NAME'] 
+            st.session_state.sel_dist = selected_row['NAME']
             st.session_state.view_level = 'Precinct'
             st.rerun()
-
+            
         elif st.session_state.view_level == 'Precinct':
             st.session_state.sel_prec = selected_row['PRECINCT_UNIQUE_ID']
             st.session_state.view_level = 'Block'
@@ -281,8 +283,3 @@ if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
             st.session_state.sel_block = selected_row['GEOID20']
             st.session_state.view_level = 'Parcel'
             st.rerun()
-
-    elif not is_level_4:
-        st.info(f"💡 Select a row in the table or click the map to drill down.")
-    else:
-        st.caption("📍 Navigation end. Displaying all parcels in the selected block.")
