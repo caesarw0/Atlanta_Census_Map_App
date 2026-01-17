@@ -6,15 +6,52 @@ import numpy as np
 import geopandas as gpd
 from streamlit_folium import st_folium
 
+CENSUS_METRIC_MAPPING = {
+    "TSRR001_001": "Internet Self-Response rate at the start of NRFU in the 2020 Census",
+    "TSRR001_002": "Paper Self-Response rate at the start of NRFU in the 2020 Census",
+    "TSRR001_003": "CQA Self-Response rate at the start of NRFU in the 2020 Census",
+    "TSRR001_004": "Total (Internet+Paper+CQA) Self-Response rate at the start of NRFU in the 2020 Census",
+    "TSRR001_005": "Final Internet Self-Response rate in the 2020 Census",
+    "TSRR001_006": "Final Paper Self-Response rate in the 2020 Census",
+    "TSRR001_007": "Final CQA Self-Response rate in the 2020 Census",
+    "TSRR001_008": "Final Total (Internet+Paper+CQA) Self-Response rate in the 2020 Census",
+    "TSRR001_009": "Internet Return rate at the start of NRFU in the 2020 Census",
+    "TSRR001_010": "Paper Return rate at the start of NRFU in the 2020 Census",
+    "TSRR001_011": "CQA Return rate at the start of NRFU in the 2020 Census",
+    "TSRR001_012": "Total (Internet+Paper+CQA) Return rate at the start of NRFU in the 2020 Census",
+    "TSRR001_013": "Final Internet Return rate in the 2020 Census",
+    "TSRR001_014": "Final Paper Return rate in the 2020 Census",
+    "TSRR001_015": "Final CQA Return rate in the 2020 Census",
+    "TSRR001_016": "Final Total (Internet+Paper+CQA) Return rate in the 2020 Census",
+    "TSRR001_017": "UAA rate at the start of NRFU in the 2020 Census",
+    "TSRR001_018": "Final UAA rate in the 2020 Census",
+    "TSRR001_019": "Self-response rate at the NRFU cut date in the 2010 Census",
+    "TSRR001_020": "Final Self-Response rate in the 2010 Census",
+    "TSRR001_021": "Return rate at the NRFU cut date in the 2010 Census",
+    "TSRR001_022": "Final Return rate in the 2010 Census",
+    "TSRR001_023": "UAA rate at the NRFU cut date in the 2010 Census",
+    "TSRR001_024": "Final UAA rate in the 2010 Census"
+}
+census_display_names = list(CENSUS_METRIC_MAPPING.values())
 st.set_page_config(layout="wide", page_title="Atlanta Census 2020 Dashboard")
 
 # 1. LOAD DATA (Optimized with Lazy Loading for Level 4)
 @st.cache_data
 def load_base_data():
-    districts = gpd.read_file("data/Atlanta_Council_District.geojson").to_crs(epsg=4326)
+    districts = gpd.read_file("data/Atlanta_Council_Census_Aggregated.geojson").to_crs(epsg=4326)
     precincts = gpd.read_file("data/Atlanta_Precincts_Census_Assigned.geojson").to_crs(epsg=4326)
     blocks = gpd.read_file("data/Atlanta_Blocks_Master_Clean.geojson").to_crs(epsg=4326)
     parcels = gpd.read_file("data/Atlanta_Parcels_Level4.geojson").to_crs(epsg=4326)
+
+    for gdf in [districts, precincts]:
+        # 1. Round numeric values
+        for col in CENSUS_METRIC_MAPPING.keys():
+            if col in gdf.columns:
+                gdf[col] = pd.to_numeric(gdf[col], errors='coerce').round(1)
+        
+        # 2. Rename columns globally
+        # We only rename columns that exist in the CENSUS_METRIC_MAPPING
+        gdf.rename(columns=CENSUS_METRIC_MAPPING, inplace=True)
     return districts, precincts, blocks, parcels
 
 # Performance: Only load parcels matching the current scope
@@ -81,24 +118,29 @@ st.divider()
 if st.session_state.view_level == 'District':
     display_gdf = dist_gdf
     zoom = 11
-    tooltip_fields = ['NAME', 'POP20']
+    tooltip_fields = ['NAME', 'POP20', CENSUS_METRIC_MAPPING['TSRR001_008']]
     map_center = [33.749, -84.388]
+    summary_pop = dist_gdf['POP20'].sum()
 
 elif st.session_state.view_level == 'Precinct':
     display_gdf = prec_gdf[prec_gdf['COUNCIL_DISTRICT_ID'].astype(str) == str(st.session_state.sel_dist)]
     zoom = 13
-    tooltip_fields = ['PRECINCT_UNIQUE_ID', 'POP20']
+    tooltip_fields = ['PRECINCT_UNIQUE_ID', 'POP20', CENSUS_METRIC_MAPPING['TSRR001_008']]
+    parent_district = dist_gdf[dist_gdf['NAME'] == st.session_state.sel_dist]
+    summary_pop = parent_district['POP20'].iloc[0] if not parent_district.empty else 0
     
 elif st.session_state.view_level == 'Block':
     display_gdf = block_gdf[block_gdf['PRECINCT_UNIQUE_ID'] == st.session_state.sel_prec]
     zoom = 15
     tooltip_fields = ['GEOID20', 'POP20']
+    summary_pop = display_gdf['POP20'].sum()
 
 elif st.session_state.view_level == 'Parcel':
     # PRE-FILTERING LEVEL 4: Only load parcels for the specific block
     display_gdf = parcels_gdf[parcels_gdf['BLOCK_GEOID20'].astype(str) == str(st.session_state.sel_block)]
     zoom = 18
-    tooltip_fields = ['PSTLADDRESS', 'BLOCK_GEOID20'] # Adjust based on your parcel attributes
+    tooltip_fields = ['PSTLADDRESS'] # Adjust based on your parcel attributes
+    summary_pop = block_gdf[block_gdf['GEOID20'] == st.session_state.sel_block]['POP20'].sum()
 
 # Safety check
 if display_gdf.empty:
@@ -107,6 +149,22 @@ if display_gdf.empty:
 
 bounds = display_gdf.total_bounds
 map_center = [(bounds[1] + bounds[3])/2, (bounds[0] + bounds[2])/2]
+
+# Display the cards
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric(label="Total Population", value=f"{int(summary_pop):,}")
+if st.session_state.view_level in ['District', 'Precinct']:
+    with col2:
+        # Use the renamed column name from your mapping
+        target_col = "Final Total (Internet+Paper+CQA) Self-Response rate in the 2020 Census"
+        if st.session_state.view_level == 'District' or st.session_state.view_level == 'Precinct':
+            avg_rate = dist_gdf[target_col].mean()
+        else:
+            avg_rate = dist_gdf[target_col].iloc[0]
+        st.metric(label="Self-Response Rate", value=f"{avg_rate:.1f}%")
+
+    st.divider()
 
 # 5. RENDER MAP
 m = folium.Map(location=map_center, zoom_start=zoom, tiles='OpenStreetMap', control_scale=True)
@@ -164,27 +222,80 @@ if map_output and map_output.get("last_active_drawing"):
         st.session_state.view_level = 'Parcel'
         st.rerun()
 
-# 8. DATA TABLE (Selection Drill-down)
-if st.session_state.view_level in ['Precinct', 'Block', 'Parcel']:
+# 8. DATA TABLE (Conditional Columns with Ascending Sort)
+if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
     st.subheader(f"Interactive List View: {st.session_state.view_level}")
+    target_sort_name = CENSUS_METRIC_MAPPING['TSRR001_008']
+    # 1. Setup Column Logic and Rename Dictionary
+    if st.session_state.view_level == 'District':
+        cols_to_show = ['NAME'] + census_display_names
+        sort_col = target_sort_name
+        rename_dict = {
+            'NAME': 'Council District',
+            **CENSUS_METRIC_MAPPING
+        }
     
-    # Clean up the table for display
-    df_table = display_gdf.drop(columns='geometry')
+    elif st.session_state.view_level == 'Precinct':
+        cols_to_show = ['PRECINCT_UNIQUE_ID', 'POP20'] + census_display_names
+        sort_col = target_sort_name
+        rename_dict = {
+            'POP20': 'Population',
+            **CENSUS_METRIC_MAPPING
+        }
     
-    # Corrected selection_mode with hyphen
-    event = st.dataframe(
-        df_table, 
-        use_container_width=True, 
-        on_select="rerun", 
-        selection_mode="single-row" 
-    )
-    
-    # Handle Table Selection Drill-down
-    if event.selection.rows:
-        selected_index = event.selection.rows[0]
-        selected_row = display_gdf.iloc[selected_index]
+    elif st.session_state.view_level == 'Block':
+        cols_to_show = ['GEOID20', 'POP20']
+        sort_col = 'POP20' # Sort blocks by population instead
+        rename_dict = {'POP20': 'Population'}
         
-        if st.session_state.view_level == 'Precinct':
+    else: # Parcel / Level 4
+        cols_to_show = ['PSTLADDRESS', 'BLOCK_GEOID20']
+        sort_col = 'PSTLADDRESS'
+        rename_dict = {'PSTLADDRESS': 'Property Address', 'BLOCK_GEOID20': 'Parent Block ID'}
+
+    # 2. Filter, Sort, and Rename
+    df_visible = display_gdf[cols_to_show].copy()
+    
+    # Sort while columns still have original names
+    df_visible = df_visible.sort_values(by=sort_col, ascending=True)
+
+    # 3. Render Table with Hidden Technical Columns
+    is_level_4 = (st.session_state.view_level == 'Parcel')
+    mode = "single-row" if not is_level_4 else None
+    
+    # We use st.dataframe's column_config to rename columns for display 
+    # without actually changing the underlying dataframe column names.
+    event = st.dataframe(
+        df_visible, 
+        use_container_width=True, 
+        on_select="rerun" if not is_level_4 else "ignore",
+        selection_mode=mode,
+        hide_index=True,
+        column_config={
+            "NAME": "Council District",
+            # "PRECINCT_UNIQUE_ID": "Precinct ID",
+            "GEOID20": "Block Group ID",
+            "POP20": "Population",
+            "TOTAL_POP20": "Total Population",
+            "PSTLADDRESS": "Address",
+            "BLOCK_GEOID20": "Parent Block"
+        }
+    )
+
+    # 4. Drill-Down Logic (Now works because names are stable)
+    if mode == "single-row" and event.selection.rows:
+        selected_row_index = event.selection.rows[0]
+        
+        # Get the technical data from the visible dataframe
+        # df_visible still has columns like 'PRECINCT_UNIQUE_ID'
+        selected_row = df_visible.iloc[selected_row_index]
+        
+        if st.session_state.view_level == 'District':
+            st.session_state.sel_dist = selected_row['NAME']
+            st.session_state.view_level = 'Precinct'
+            st.rerun()
+            
+        elif st.session_state.view_level == 'Precinct':
             st.session_state.sel_prec = selected_row['PRECINCT_UNIQUE_ID']
             st.session_state.view_level = 'Block'
             st.rerun()
