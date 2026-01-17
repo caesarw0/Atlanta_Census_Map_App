@@ -32,7 +32,7 @@ CENSUS_METRIC_MAPPING = {
     "TSRR001_023": "UAA rate at the NRFU cut date in the 2010 Census",
     "TSRR001_024": "Final UAA rate in the 2010 Census"
 }
-
+census_display_names = list(CENSUS_METRIC_MAPPING.values())
 st.set_page_config(layout="wide", page_title="Atlanta Census 2020 Dashboard")
 
 # 1. LOAD DATA (Optimized with Lazy Loading for Level 4)
@@ -113,29 +113,34 @@ if st.session_state.sel_block:
         st.info(f"🏠 Block {st.session_state.sel_block[-4:]}")
 
 st.divider()
-census_display_names = list(CENSUS_METRIC_MAPPING.values())
+
 # 4. FILTERING & MAP PARAMETERS
 if st.session_state.view_level == 'District':
     display_gdf = dist_gdf
     zoom = 11
     tooltip_fields = ['NAME', 'POP20', CENSUS_METRIC_MAPPING['TSRR001_008']]
     map_center = [33.749, -84.388]
+    summary_pop = dist_gdf['POP20'].sum()
 
 elif st.session_state.view_level == 'Precinct':
     display_gdf = prec_gdf[prec_gdf['COUNCIL_DISTRICT_ID'].astype(str) == str(st.session_state.sel_dist)]
     zoom = 13
     tooltip_fields = ['PRECINCT_UNIQUE_ID', 'POP20', CENSUS_METRIC_MAPPING['TSRR001_008']]
+    parent_district = dist_gdf[dist_gdf['NAME'] == st.session_state.sel_dist]
+    summary_pop = parent_district['POP20'].iloc[0] if not parent_district.empty else 0
     
 elif st.session_state.view_level == 'Block':
     display_gdf = block_gdf[block_gdf['PRECINCT_UNIQUE_ID'] == st.session_state.sel_prec]
     zoom = 15
     tooltip_fields = ['GEOID20', 'POP20']
+    summary_pop = display_gdf['POP20'].sum()
 
 elif st.session_state.view_level == 'Parcel':
     # PRE-FILTERING LEVEL 4: Only load parcels for the specific block
     display_gdf = parcels_gdf[parcels_gdf['BLOCK_GEOID20'].astype(str) == str(st.session_state.sel_block)]
     zoom = 18
     tooltip_fields = ['PSTLADDRESS'] # Adjust based on your parcel attributes
+    summary_pop = block_gdf[block_gdf['GEOID20'] == st.session_state.sel_block]['POP20'].sum()
 
 # Safety check
 if display_gdf.empty:
@@ -144,6 +149,22 @@ if display_gdf.empty:
 
 bounds = display_gdf.total_bounds
 map_center = [(bounds[1] + bounds[3])/2, (bounds[0] + bounds[2])/2]
+
+# Display the cards
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric(label="Total Population", value=f"{int(summary_pop):,}")
+if st.session_state.view_level in ['District', 'Precinct']:
+    with col2:
+        # Use the renamed column name from your mapping
+        target_col = "Final Total (Internet+Paper+CQA) Self-Response rate in the 2020 Census"
+        if st.session_state.view_level == 'District' or st.session_state.view_level == 'Precinct':
+            avg_rate = dist_gdf[target_col].mean()
+        else:
+            avg_rate = dist_gdf[target_col].iloc[0]
+        st.metric(label="Self-Response Rate", value=f"{avg_rate:.1f}%")
+
+    st.divider()
 
 # 5. RENDER MAP
 m = folium.Map(location=map_center, zoom_start=zoom, tiles='OpenStreetMap', control_scale=True)
