@@ -122,6 +122,7 @@ if st.session_state.view_level == 'District':
     map_center = [33.749, -84.388]
     summary_pop = dist_gdf['POP20'].sum()
     summary_rate = dist_gdf[CENSUS_METRIC_MAPPING['TSRR001_008']].mean()
+    summary_pop_label = "City of Atlanta Census 2020 Total Population"
 
 elif st.session_state.view_level == 'Precinct':
     display_gdf = prec_gdf[prec_gdf['COUNCIL_DISTRICT_ID'].astype(str) == str(st.session_state.sel_dist)]
@@ -130,6 +131,7 @@ elif st.session_state.view_level == 'Precinct':
     parent_district = dist_gdf[dist_gdf['NAME'] == st.session_state.sel_dist]
     summary_pop = parent_district['POP20'].iloc[0] if not parent_district.empty else 0
     summary_rate = parent_district[CENSUS_METRIC_MAPPING['TSRR001_008']].mean()
+    summary_pop_label = f"Atlanta Council District {st.session_state.sel_dist} Census 2020 Total Population"
 
 elif st.session_state.view_level == 'Block':
     display_gdf = block_gdf[block_gdf['PRECINCT_UNIQUE_ID'] == st.session_state.sel_prec]
@@ -138,13 +140,16 @@ elif st.session_state.view_level == 'Block':
     summary_pop = display_gdf['POP20'].sum()
     parent_district = prec_gdf[prec_gdf['PRECINCT_UNIQUE_ID'] == st.session_state.sel_prec]
     summary_rate = parent_district[CENSUS_METRIC_MAPPING['TSRR001_008']].mean()
+    summary_pop_label = f"Atlanta Precinct {parent_district['CTYSOSID'].iloc[0]} Census 2020 Total Population"
 
 elif st.session_state.view_level == 'Parcel':
     # PRE-FILTERING LEVEL 4: Only load parcels for the specific block
     display_gdf = parcels_gdf[parcels_gdf['BLOCK_GEOID20'].astype(str) == str(st.session_state.sel_block)]
     zoom = 18
     tooltip_fields = ['PSTLADDRESS'] # Adjust based on your parcel attributes
-    summary_pop = block_gdf[block_gdf['GEOID20'] == st.session_state.sel_block]['POP20'].sum()
+    filtered_block = block_gdf[block_gdf['GEOID20'] == st.session_state.sel_block]
+    summary_pop = filtered_block['POP20'].sum()
+    summary_pop_label = f"Atlanta Block {filtered_block['BLOCKCE20'].iloc[0]} Census 2020 Total Population"
 
 # Safety check
 if display_gdf.empty:
@@ -157,7 +162,7 @@ map_center = [(bounds[1] + bounds[3])/2, (bounds[0] + bounds[2])/2]
 # Display the cards
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.metric(label="Total Population", value=f"{int(summary_pop):,}")
+    st.metric(label=summary_pop_label, value=f"{int(summary_pop):,}")
 if st.session_state.view_level in ['District', 'Precinct', 'Block']:
     with col2:
         st.metric(label="Self-Response Rate", value=f"{summary_rate:.1f}%")
@@ -199,7 +204,7 @@ if st.session_state.view_level != 'Parcel':
     for _, row in display_gdf.iterrows():
         if row.geometry:
             loc = [row['INTPTLAT20'], row['INTPTLON20']] if 'INTPTLAT20' in row else [row.geometry.centroid.y, row.geometry.centroid.x]
-            folium.Marker(location=loc, icon=folium.DivIcon(html=f"""<div style="font-size: 9pt; font-weight: bold; pointer-events: none; text-shadow: 1px 1px 2px white;">{row[label_col]}</div>""")).add_to(m)
+            folium.Marker(location=loc, icon=folium.DivIcon(html=f"""<div style="font-size: 9pt; font-weight: bold; pointer-events: none; text-shadow: 1px 1px 2px black;">{row[label_col]}</div>""")).add_to(m)
 
 # 7. CAPTURE CLICKS & DATA TABLES
 map_output = st_folium(m, width="100%", height=700, key=f"map_{st.session_state.view_level}")
