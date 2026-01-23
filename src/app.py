@@ -12,6 +12,8 @@ def get_base64_image(image_path):
     with open(image_path, "rb") as img_file:
         return f"data:image/png;base64,{base64.b64encode(img_file.read()).decode()}"
 
+GROWTH_RATE = 1.088
+
 CENSUS_METRIC_MAPPING = {
     "TSRR001_001": "Internet Self-Response rate at the start of NRFU in the 2020 Census",
     "TSRR001_002": "Paper Self-Response rate at the start of NRFU in the 2020 Census",
@@ -51,6 +53,10 @@ def load_base_data():
     precincts = gpd.read_file("data/Atlanta_Precincts_Census_Assigned.geojson").to_crs(epsg=4326)
     blocks = gpd.read_file("data/Atlanta_Blocks_Master_Clean.geojson").to_crs(epsg=4326)
     parcels = gpd.read_file("data/Atlanta_Parcels_Level4.geojson").to_crs(epsg=4326)
+
+    districts["POP25_ESTIMATE"] = districts["POP20"] * GROWTH_RATE
+    precincts["POP25_ESTIMATE"] = precincts["POP20"] * GROWTH_RATE
+    blocks["POP25_ESTIMATE"] = blocks["POP20"] * GROWTH_RATE
 
     for gdf in [districts, precincts]:
         # 1. Round numeric values
@@ -124,26 +130,29 @@ if st.session_state.sel_block:
 if st.session_state.view_level == 'District':
     display_gdf = dist_gdf
     zoom = 11
-    tooltip_fields = ['NAME', 'POP20', CENSUS_METRIC_MAPPING['TSRR001_008']]
+    tooltip_fields = ['NAME', 'POP20', 'POP25_ESTIMATE', CENSUS_METRIC_MAPPING['TSRR001_008']]
     map_center = [33.749, -84.388]
     summary_pop = dist_gdf['POP20'].sum()
+    summary_pop_estimate = dist_gdf['POP25_ESTIMATE'].sum()
     summary_rate = dist_gdf[CENSUS_METRIC_MAPPING['TSRR001_008']].mean()
     summary_pop_label = "City of Atlanta Census 2020 Total Population"
 
 elif st.session_state.view_level == 'Precinct':
     display_gdf = prec_gdf[prec_gdf['COUNCIL_DISTRICT_ID'].astype(str) == str(st.session_state.sel_dist)]
     zoom = 13
-    tooltip_fields = ['PRECINCT_I', 'POP20', CENSUS_METRIC_MAPPING['TSRR001_008']]
+    tooltip_fields = ['PRECINCT_I', 'POP20', 'POP25_ESTIMATE', CENSUS_METRIC_MAPPING['TSRR001_008']]
     parent_district = dist_gdf[dist_gdf['NAME'] == st.session_state.sel_dist]
     summary_pop = parent_district['POP20'].iloc[0] if not parent_district.empty else 0
+    summary_pop_estimate = parent_district['POP25_ESTIMATE'].iloc[0] if not parent_district.empty else 0
     summary_rate = parent_district[CENSUS_METRIC_MAPPING['TSRR001_008']].mean()
-    summary_pop_label = f"Atlanta Council District {st.session_state.sel_dist} Census 2020 Total Population"
+    summary_pop_label = f"{st.session_state.sel_dist} Census 2020 Total Population"
 
 elif st.session_state.view_level == 'Block':
     display_gdf = block_gdf[block_gdf['PRECINCT_UNIQUE_ID'] == st.session_state.sel_prec]
     zoom = 15
-    tooltip_fields = ['GEOID20', 'POP20']
+    tooltip_fields = ['GEOID20', 'POP20', 'POP25_ESTIMATE']
     summary_pop = display_gdf['POP20'].sum()
+    summary_pop_estimate = display_gdf['POP25_ESTIMATE'].sum()
     parent_district = prec_gdf[prec_gdf['PRECINCT_UNIQUE_ID'] == st.session_state.sel_prec]
     summary_rate = parent_district[CENSUS_METRIC_MAPPING['TSRR001_008']].mean()
     summary_pop_label = f"Atlanta Precinct {parent_district['CTYSOSID'].iloc[0]} Census 2020 Total Population"
@@ -155,6 +164,7 @@ elif st.session_state.view_level == 'Parcel':
     tooltip_fields = ['PSTLADDRESS'] # Adjust based on your parcel attributes
     filtered_block = block_gdf[block_gdf['GEOID20'] == st.session_state.sel_block]
     summary_pop = filtered_block['POP20'].sum()
+    summary_pop_estimate = filtered_block['POP25_ESTIMATE'].sum()
     summary_pop_label = f"Atlanta Block {filtered_block['BLOCKCE20'].iloc[0]} Census 2020 Total Population"
 
 # Safety check
@@ -166,13 +176,17 @@ bounds = display_gdf.total_bounds
 map_center = [(bounds[1] + bounds[3])/2, (bounds[0] + bounds[2])/2]
 
 # Display the cards
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 with col1:
     st.metric(label=summary_pop_label, value=f"{int(summary_pop):,}")
 if st.session_state.view_level in ['District', 'Precinct', 'Block']:
+    display_gdf['POP25_ESTIMATE'] = display_gdf['POP25_ESTIMATE'].apply(
+        lambda x: f"{int(round(x)):,}" if pd.notnull(x) else "N/A"
+    )
     with col2:
-        st.metric(label="Self-Response Rate", value=f"{summary_rate:.1f}%")
-
+        st.metric(label="2020 Census Self-Response Rate", value=f"{summary_rate:.1f}%")
+with col3:
+    st.metric(label="2025 Population Estimate", value=f"{int(summary_pop_estimate):,}")
 # 5. RENDER MAP
 white_tile_url = get_base64_image("white_background.png")
 if st.session_state.view_level == 'District':
@@ -248,7 +262,8 @@ if st.session_state.view_level in ['District', 'Precinct']:
 tooltip_aliases = [
     "District Name:" if f == 'NAME' else
     "Precinct Name:" if f == 'PRECINCT_I' else
-    "Population:" if f == 'POP20' else
+    "Population (2020):" if f == 'POP20' else
+    "Population (2025 Estimate):" if f == 'POP25_ESTIMATE' else
     "Property Address:" if f == 'PSTLADDRESS' else
     "Self-Response Rate:" if f == display_metric_col else 
     f"{f}:" for f in tooltip_fields
@@ -305,7 +320,7 @@ if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
     target_sort_name = CENSUS_METRIC_MAPPING['TSRR001_008']
     # 1. Setup Column Logic and Rename Dictionary
     if st.session_state.view_level == 'District':
-        cols_to_show = ['NAME'] + census_display_names
+        cols_to_show = ['NAME', 'POP20', 'POP25_ESTIMATE'] + census_display_names
         sort_col = 'NAME'
         rename_dict = {
             'NAME': 'Council District',
@@ -313,7 +328,7 @@ if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
         }
     
     elif st.session_state.view_level == 'Precinct':
-        cols_to_show = ['PRECINCT_UNIQUE_ID', 'PRECINCT_I', 'POP20'] + census_display_names
+        cols_to_show = ['PRECINCT_UNIQUE_ID', 'PRECINCT_I', 'POP20', 'POP25_ESTIMATE'] + census_display_names
         sort_col = target_sort_name
         rename_dict = {
             'POP20': 'Population',
@@ -322,7 +337,7 @@ if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
         }
     
     elif st.session_state.view_level == 'Block':
-        cols_to_show = ['GEOID20', 'POP20']
+        cols_to_show = ['GEOID20', 'POP20', 'POP25_ESTIMATE']
         sort_col = 'POP20' # Sort blocks by population instead
         rename_dict = {'POP20': 'Population'}
         
@@ -346,7 +361,8 @@ if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
     # 3. Configuration Setup
     base_config = {
         "GEOID20": "Block Group ID",
-        "POP20": st.column_config.NumberColumn("Population", format="%d"),
+        "POP20": st.column_config.NumberColumn("Population (2020)", format="%d"),
+        "POP25_ESTIMATE": st.column_config.NumberColumn("Population (2025 Estimate)", format="%d"),
         "PSTLADDRESS": "Address",
         "BLOCK_GEOID20": "Parent Block",
         "PRECINCT_UNIQUE_ID": None, # Hide technical ID if desired
