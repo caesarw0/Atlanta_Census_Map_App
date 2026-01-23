@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import geopandas as gpd
 from streamlit_folium import st_folium
-
+from shapely.geometry import box
 import base64
 
 def get_base64_image(image_path):
@@ -94,7 +94,7 @@ if 'sel_block' not in st.session_state:
     st.session_state.sel_block = None
 
 # 3. HEADER & NAVIGATION
-nav_cols = st.columns([1, 2, 2, 2, 3])
+nav_cols = st.columns([2, 2, 2, 2])
 
 with nav_cols[0]:
     if st.button("🏙️ City"):
@@ -192,6 +192,28 @@ else:
         control_scale=True
     )
 
+    if st.session_state.view_level == 'Precinct':
+        # 1. Get the combined shape of all precincts in view
+        combined_shape = display_gdf.unary_union
+        
+        # 2. Create a "World Mask" (a giant rectangle)
+        world_bounds = box(-180, -90, 180, 90)
+        
+        # 3. Subtract your precincts from the world to create a hole
+        mask_shape = world_bounds.difference(combined_shape)
+        
+        # 4. Add the mask to your map with a solid white color
+        folium.GeoJson(
+            mask_shape,
+            style_function=lambda x: {
+                'fillColor': '#FFFFFF',
+                'color': '#FFFFFF',
+                'fillOpacity': 1.0,
+                'weight': 0
+            },
+            tooltip=None
+        ).add_to(m)
+
 # COLORING LOGIC (Level 1-3 use POP20, Level 4 is neutral or Categorical)
 if st.session_state.view_level != 'Parcel':
     display_gdf['POP20'] = pd.to_numeric(display_gdf['POP20'], errors='coerce').fillna(0)
@@ -209,11 +231,41 @@ else:
     # Level 4 Style (Parcel)
     style_func = lambda x: {'fillColor': '#3498db', 'color': 'black', 'weight': 1, 'fillOpacity': 0.5}
 
+# Create a display-only column for the tooltip to add the % suffix
+metric_col = CENSUS_METRIC_MAPPING['TSRR001_008']
+display_metric_col = f"{metric_col}_pct_label"
+
+# We only apply this to District and Precinct levels where the metric is shown
+if st.session_state.view_level in ['District', 'Precinct']:
+    # Format as string with % suffix
+    display_gdf[display_metric_col] = display_gdf[metric_col].apply(
+        lambda x: f"{x:.1f}%" if pd.notnull(x) else "N/A"
+    )
+    # Update tooltip_fields list to use the new string column instead of the raw number
+    tooltip_fields = [f if f != metric_col else display_metric_col for f in tooltip_fields]
+
+# Define cleaner aliases for the tooltip labels
+tooltip_aliases = [
+    "District Name:" if f == 'NAME' else
+    "Precinct Name:" if f == 'PRECINCT_I' else
+    "Population:" if f == 'POP20' else
+    "Property Address:" if f == 'PSTLADDRESS' else
+    "Self-Response Rate:" if f == display_metric_col else 
+    f"{f}:" for f in tooltip_fields
+]
+
+# Now render the folium.GeoJson with the updated fields and aliases
 folium.GeoJson(
     display_gdf,
     style_function=style_func,
     highlight_function=lambda x: {'fillColor': '#f1c40f', 'fillOpacity': 0.8},
-    tooltip=folium.GeoJsonTooltip(fields=tooltip_fields)
+    tooltip=folium.GeoJsonTooltip(
+        fields=tooltip_fields,
+        aliases=tooltip_aliases,
+        localize=True,
+        labels=True,
+        sticky=False
+    )
 ).add_to(m)
 
 # 6. LABELS (Optimized)
