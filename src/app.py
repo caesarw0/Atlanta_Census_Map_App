@@ -204,10 +204,10 @@ if st.session_state.view_level != 'Parcel':
 
     def style_func(feature):
         val = feature['properties'].get('POP20', 0)
-        return {'fillColor': colormap(val), 'color': 'white', 'weight': 0.5, 'fillOpacity': 0.7}
+        return {'fillColor': colormap(val), 'color': 'black', 'weight': 0.5, 'fillOpacity': 0.7}
 else:
     # Level 4 Style (Parcel)
-    style_func = lambda x: {'fillColor': '#3498db', 'color': 'white', 'weight': 1, 'fillOpacity': 0.5}
+    style_func = lambda x: {'fillColor': '#3498db', 'color': 'black', 'weight': 1, 'fillOpacity': 0.5}
 
 folium.GeoJson(
     display_gdf,
@@ -252,7 +252,7 @@ if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
     # 1. Setup Column Logic and Rename Dictionary
     if st.session_state.view_level == 'District':
         cols_to_show = ['NAME'] + census_display_names
-        sort_col = target_sort_name
+        sort_col = 'NAME'
         rename_dict = {
             'NAME': 'Council District',
             **CENSUS_METRIC_MAPPING
