@@ -6,6 +6,12 @@ import numpy as np
 import geopandas as gpd
 from streamlit_folium import st_folium
 
+import base64
+
+def get_base64_image(image_path):
+    with open(image_path, "rb") as img_file:
+        return f"data:image/png;base64,{base64.b64encode(img_file.read()).decode()}"
+
 CENSUS_METRIC_MAPPING = {
     "TSRR001_001": "Internet Self-Response rate at the start of NRFU in the 2020 Census",
     "TSRR001_002": "Paper Self-Response rate at the start of NRFU in the 2020 Census",
@@ -33,7 +39,10 @@ CENSUS_METRIC_MAPPING = {
     "TSRR001_024": "Final UAA rate in the 2010 Census"
 }
 census_display_names = list(CENSUS_METRIC_MAPPING.values())
-st.set_page_config(layout="wide", page_title="Atlanta Census 2020 Dashboard")
+st.set_page_config(
+    layout="wide", 
+    initial_sidebar_state="collapsed"
+)
 
 # 1. LOAD DATA (Optimized with Lazy Loading for Level 4)
 @st.cache_data
@@ -85,7 +94,6 @@ if 'sel_block' not in st.session_state:
     st.session_state.sel_block = None
 
 # 3. HEADER & NAVIGATION
-st.title("Atlanta Census 2020 Drill-Down Dashboard")
 nav_cols = st.columns([1, 1, 1, 1, 3])
 
 with nav_cols[0]:
@@ -111,8 +119,6 @@ if st.session_state.sel_prec:
 if st.session_state.sel_block:
     with nav_cols[3]:
         st.info(f"🏠 Block {st.session_state.sel_block[-4:]}")
-
-st.divider()
 
 # 4. FILTERING & MAP PARAMETERS
 if st.session_state.view_level == 'District':
@@ -167,10 +173,24 @@ if st.session_state.view_level in ['District', 'Precinct', 'Block']:
     with col2:
         st.metric(label="Self-Response Rate", value=f"{summary_rate:.1f}%")
 
-    st.divider()
-
 # 5. RENDER MAP
-m = folium.Map(location=map_center, zoom_start=zoom, tiles='OpenStreetMap', control_scale=True)
+white_tile_url = get_base64_image("white_background.png")
+if st.session_state.view_level == 'District':
+    # This creates a map with no background tiles at all
+    m = folium.Map(
+        location=map_center, # Example location (New York City)
+        zoom_start=11,
+        tiles=white_tile_url,
+        attr="Base Map"
+    )
+else:
+    # Use a clean, light-themed tile for deeper levels (Precinct, Block, Parcel)
+    m = folium.Map(
+        location=map_center, 
+        zoom_start=zoom, 
+        tiles='CartoDB positron', 
+        control_scale=True
+    )
 
 # COLORING LOGIC (Level 1-3 use POP20, Level 4 is neutral or Categorical)
 if st.session_state.view_level != 'Parcel':
@@ -184,7 +204,7 @@ if st.session_state.view_level != 'Parcel':
 
     def style_func(feature):
         val = feature['properties'].get('POP20', 0)
-        return {'fillColor': colormap(val), 'color': 'black', 'weight': 0.5, 'fillOpacity': 0.7}
+        return {'fillColor': colormap(val), 'color': 'white', 'weight': 0.5, 'fillOpacity': 0.7}
 else:
     # Level 4 Style (Parcel)
     style_func = lambda x: {'fillColor': '#3498db', 'color': 'white', 'weight': 1, 'fillOpacity': 0.5}
@@ -204,7 +224,7 @@ if st.session_state.view_level != 'Parcel':
     for _, row in display_gdf.iterrows():
         if row.geometry:
             loc = [row['INTPTLAT20'], row['INTPTLON20']] if 'INTPTLAT20' in row else [row.geometry.centroid.y, row.geometry.centroid.x]
-            folium.Marker(location=loc, icon=folium.DivIcon(html=f"""<div style="font-size: 9pt; font-weight: bold; pointer-events: none; text-shadow: 1px 1px 2px black;">{row[label_col]}</div>""")).add_to(m)
+            folium.Marker(location=loc, icon=folium.DivIcon(html=f"""<div style="font-size: 9pt; font-weight: bold; pointer-events: none; text-shadow: 1px 1px 2px white;">{row[label_col]}</div>""")).add_to(m)
 
 # 7. CAPTURE CLICKS & DATA TABLES
 map_output = st_folium(m, width="100%", height=700, key=f"map_{st.session_state.view_level}")
