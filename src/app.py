@@ -104,7 +104,7 @@ with nav_cols[0]:
 
 if st.session_state.sel_dist:
     with nav_cols[1]:
-        if st.button(f"📂 Dist {st.session_state.sel_dist}"):
+        if st.button(f"📂 {st.session_state.sel_dist}"):
             st.session_state.view_level = 'Precinct'
             st.session_state.sel_prec = st.session_state.sel_block = None
             st.rerun()
@@ -222,6 +222,8 @@ if st.session_state.view_level != 'Parcel':
     label_col = label_map[st.session_state.view_level]
     
     for _, row in display_gdf.iterrows():
+        if st.session_state.view_level == 'District':
+            row[label_col] = row[label_col].replace('Atlanta City Council - District ', '')
         if row.geometry:
             loc = [row['INTPTLAT20'], row['INTPTLON20']] if 'INTPTLAT20' in row else [row.geometry.centroid.y, row.geometry.centroid.x]
             folium.Marker(location=loc, icon=folium.DivIcon(html=f"""<div style="font-size: 9pt; font-weight: bold; pointer-events: none; text-shadow: 1px 1px 2px white;">{row[label_col]}</div>""")).add_to(m)
