@@ -40,32 +40,6 @@ CENSUS_METRIC_MAPPING = {
     "TSRR001_023": "UAA rate at the NRFU cut date in the 2010 Census",
     "TSRR001_024": "Final UAA rate in the 2010 Census"
 }
-SHORT_NAME_MAPPING = {
-    "TSRR001_001": "Internet SRR (Start)",
-    "TSRR001_002": "Paper SRR (Start)",
-    "TSRR001_003": "CQA SRR (Start)",
-    "TSRR001_004": "Total SRR (Start)",
-    "TSRR001_005": "Final Internet SRR",
-    "TSRR001_006": "Final Paper SRR",
-    "TSRR001_007": "Final CQA SRR",
-    "TSRR001_008": "Final Total SRR",
-    "TSRR001_009": "Internet RR (Start)",
-    "TSRR001_010": "Paper RR (Start)",
-    "TSRR001_011": "CQA RR (Start)",
-    "TSRR001_012": "Total RR (Start)",
-    "TSRR001_013": "Final Internet RR",
-    "TSRR001_014": "Final Paper RR",
-    "TSRR001_015": "Final CQA RR",
-    "TSRR001_016": "Final Total RR",
-    "TSRR001_017": "UAA Rate (Start)",
-    "TSRR001_018": "Final UAA Rate",
-    "TSRR001_019": "2010 SRR (Cut Date)",
-    "TSRR001_020": "Final 2010 SRR",
-    "TSRR001_021": "2010 RR (Cut Date)",
-    "TSRR001_022": "Final 2010 RR",
-    "TSRR001_023": "2010 UAA (Cut Date)",
-    "TSRR001_024": "Final 2010 UAA"
-}
 census_display_names = list(CENSUS_METRIC_MAPPING.values())
 st.set_page_config(
     layout="wide", 
@@ -388,33 +362,27 @@ if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
     base_config = {
         "GEOID20": "Block Group ID",
         "POP20": st.column_config.NumberColumn("Population (2020)", format="%d"),
-        "POP25_ESTIMATE": st.column_config.NumberColumn("Population (2025 Est)", format="%d"),
+        "POP25_ESTIMATE": st.column_config.NumberColumn("Population (2025 Estimate)", format="%d"),
         "PSTLADDRESS": "Address",
         "BLOCK_GEOID20": "Parent Block",
-        "PRECINCT_UNIQUE_ID": None, 
+        "PRECINCT_UNIQUE_ID": None, # Hide technical ID if desired
     }
     
     combined_config = {**base_config}
 
     # Iterate through every column in the visible dataframe
     for col in df_visible.columns:
-        # Match the current column (long name) back to its TSRR ID
-        tsrr_key = next((k for k, v in CENSUS_METRIC_MAPPING.items() if v == col), None)
-
-        if tsrr_key:
-            # Get the shorthand label
-            short_label = SHORT_NAME_MAPPING.get(tsrr_key, col)
-            
-            # Apply shorthand as the 'label' and the full name as the 'help' tooltip
+        # Check if this column is one of our Census metrics (using the display names)
+        if col in census_display_names:
             combined_config[col] = st.column_config.NumberColumn(
-                label=short_label,     # What is visible in the header
-                help=col,              # The FULL name shown on hover
-                format="%.1f%%"        # Keeps sorting numeric
+                col,
+                format="%.1f%%" 
             )
-        elif col in rename_dict and col not in combined_config:
+        elif col in rename_dict:
+            # For non-census columns in our rename dict, use the mapped name
             combined_config[col] = rename_dict[col]
 
-    # 4. Render the table (maintains click/drill-down functionality)
+    # 4. Render the table
     event = st.dataframe(
         df_visible, 
         use_container_width=True, 
