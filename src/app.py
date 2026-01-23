@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import geopandas as gpd
 from streamlit_folium import st_folium
-
+from shapely.geometry import box
 import base64
 
 def get_base64_image(image_path):
@@ -94,7 +94,7 @@ if 'sel_block' not in st.session_state:
     st.session_state.sel_block = None
 
 # 3. HEADER & NAVIGATION
-nav_cols = st.columns([1, 2, 2, 2, 3])
+nav_cols = st.columns([2, 2, 2, 2])
 
 with nav_cols[0]:
     if st.button("🏙️ City"):
@@ -191,6 +191,28 @@ else:
         tiles='OpenStreetMap', 
         control_scale=True
     )
+
+    if st.session_state.view_level == 'Precinct':
+        # 1. Get the combined shape of all precincts in view
+        combined_shape = display_gdf.unary_union
+        
+        # 2. Create a "World Mask" (a giant rectangle)
+        world_bounds = box(-180, -90, 180, 90)
+        
+        # 3. Subtract your precincts from the world to create a hole
+        mask_shape = world_bounds.difference(combined_shape)
+        
+        # 4. Add the mask to your map with a solid white color
+        folium.GeoJson(
+            mask_shape,
+            style_function=lambda x: {
+                'fillColor': '#FFFFFF',
+                'color': '#FFFFFF',
+                'fillOpacity': 1.0,
+                'weight': 0
+            },
+            tooltip=None
+        ).add_to(m)
 
 # COLORING LOGIC (Level 1-3 use POP20, Level 4 is neutral or Categorical)
 if st.session_state.view_level != 'Parcel':
