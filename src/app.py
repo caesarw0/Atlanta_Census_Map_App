@@ -6,6 +6,12 @@ import numpy as np
 import geopandas as gpd
 from streamlit_folium import st_folium
 
+import base64
+
+def get_base64_image(image_path):
+    with open(image_path, "rb") as img_file:
+        return f"data:image/png;base64,{base64.b64encode(img_file.read()).decode()}"
+
 CENSUS_METRIC_MAPPING = {
     "TSRR001_001": "Internet Self-Response rate at the start of NRFU in the 2020 Census",
     "TSRR001_002": "Paper Self-Response rate at the start of NRFU in the 2020 Census",
@@ -33,7 +39,10 @@ CENSUS_METRIC_MAPPING = {
     "TSRR001_024": "Final UAA rate in the 2010 Census"
 }
 census_display_names = list(CENSUS_METRIC_MAPPING.values())
-st.set_page_config(layout="wide", page_title="Atlanta Census 2020 Dashboard")
+st.set_page_config(
+    layout="wide", 
+    initial_sidebar_state="collapsed"
+)
 
 # 1. LOAD DATA (Optimized with Lazy Loading for Level 4)
 @st.cache_data
@@ -85,8 +94,7 @@ if 'sel_block' not in st.session_state:
     st.session_state.sel_block = None
 
 # 3. HEADER & NAVIGATION
-st.title("Atlanta Census 2020 Drill-Down Dashboard")
-nav_cols = st.columns([1, 1, 1, 1, 3])
+nav_cols = st.columns([1, 2, 2, 2, 3])
 
 with nav_cols[0]:
     if st.button("🏙️ City"):
@@ -96,14 +104,14 @@ with nav_cols[0]:
 
 if st.session_state.sel_dist:
     with nav_cols[1]:
-        if st.button(f"📂 Dist {st.session_state.sel_dist}"):
+        if st.button(f"📂 {st.session_state.sel_dist}"):
             st.session_state.view_level = 'Precinct'
             st.session_state.sel_prec = st.session_state.sel_block = None
             st.rerun()
 
 if st.session_state.sel_prec:
     with nav_cols[2]:
-        if st.button(f"📍 Prec {st.session_state.sel_prec.split('_')[-1]}"):
+        if st.button(f"📍 Precinct {st.session_state.sel_prec.split('_')[-1][3:]}"):
             st.session_state.view_level = 'Block'
             st.session_state.sel_block = None
             st.rerun()
@@ -111,8 +119,6 @@ if st.session_state.sel_prec:
 if st.session_state.sel_block:
     with nav_cols[3]:
         st.info(f"🏠 Block {st.session_state.sel_block[-4:]}")
-
-st.divider()
 
 # 4. FILTERING & MAP PARAMETERS
 if st.session_state.view_level == 'District':
@@ -127,7 +133,7 @@ if st.session_state.view_level == 'District':
 elif st.session_state.view_level == 'Precinct':
     display_gdf = prec_gdf[prec_gdf['COUNCIL_DISTRICT_ID'].astype(str) == str(st.session_state.sel_dist)]
     zoom = 13
-    tooltip_fields = ['PRECINCT_UNIQUE_ID', 'POP20', CENSUS_METRIC_MAPPING['TSRR001_008']]
+    tooltip_fields = ['PRECINCT_I', 'POP20', CENSUS_METRIC_MAPPING['TSRR001_008']]
     parent_district = dist_gdf[dist_gdf['NAME'] == st.session_state.sel_dist]
     summary_pop = parent_district['POP20'].iloc[0] if not parent_district.empty else 0
     summary_rate = parent_district[CENSUS_METRIC_MAPPING['TSRR001_008']].mean()
@@ -167,10 +173,24 @@ if st.session_state.view_level in ['District', 'Precinct', 'Block']:
     with col2:
         st.metric(label="Self-Response Rate", value=f"{summary_rate:.1f}%")
 
-    st.divider()
-
 # 5. RENDER MAP
-m = folium.Map(location=map_center, zoom_start=zoom, tiles='OpenStreetMap', control_scale=True)
+white_tile_url = get_base64_image("white_background.png")
+if st.session_state.view_level == 'District':
+    # This creates a map with no background tiles at all
+    m = folium.Map(
+        location=map_center, # Example location (New York City)
+        zoom_start=11,
+        tiles=white_tile_url,
+        attr="Base Map"
+    )
+else:
+    # Use a clean, light-themed tile for deeper levels (Precinct, Block, Parcel)
+    m = folium.Map(
+        location=map_center, 
+        zoom_start=zoom, 
+        tiles='OpenStreetMap', 
+        control_scale=True
+    )
 
 # COLORING LOGIC (Level 1-3 use POP20, Level 4 is neutral or Categorical)
 if st.session_state.view_level != 'Parcel':
@@ -187,7 +207,7 @@ if st.session_state.view_level != 'Parcel':
         return {'fillColor': colormap(val), 'color': 'black', 'weight': 0.5, 'fillOpacity': 0.7}
 else:
     # Level 4 Style (Parcel)
-    style_func = lambda x: {'fillColor': '#3498db', 'color': 'white', 'weight': 1, 'fillOpacity': 0.5}
+    style_func = lambda x: {'fillColor': '#3498db', 'color': 'black', 'weight': 1, 'fillOpacity': 0.5}
 
 folium.GeoJson(
     display_gdf,
@@ -198,13 +218,15 @@ folium.GeoJson(
 
 # 6. LABELS (Optimized)
 if st.session_state.view_level != 'Parcel':
-    label_map = {'District': 'NAME', 'Precinct': 'DISTRICT', 'Block': 'BLOCKCE20'}
+    label_map = {'District': 'NAME', 'Precinct': 'PRECINCT_I', 'Block': 'BLOCKCE20'}
     label_col = label_map[st.session_state.view_level]
     
     for _, row in display_gdf.iterrows():
+        if st.session_state.view_level == 'District':
+            row[label_col] = row[label_col].replace('Atlanta City Council - District ', '')
         if row.geometry:
             loc = [row['INTPTLAT20'], row['INTPTLON20']] if 'INTPTLAT20' in row else [row.geometry.centroid.y, row.geometry.centroid.x]
-            folium.Marker(location=loc, icon=folium.DivIcon(html=f"""<div style="font-size: 9pt; font-weight: bold; pointer-events: none; text-shadow: 1px 1px 2px black;">{row[label_col]}</div>""")).add_to(m)
+            folium.Marker(location=loc, icon=folium.DivIcon(html=f"""<div style="font-size: 9pt; font-weight: bold; pointer-events: none; text-shadow: 1px 1px 2px white;">{row[label_col]}</div>""")).add_to(m)
 
 # 7. CAPTURE CLICKS & DATA TABLES
 map_output = st_folium(m, width="100%", height=700, key=f"map_{st.session_state.view_level}")
@@ -232,17 +254,18 @@ if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
     # 1. Setup Column Logic and Rename Dictionary
     if st.session_state.view_level == 'District':
         cols_to_show = ['NAME'] + census_display_names
-        sort_col = target_sort_name
+        sort_col = 'NAME'
         rename_dict = {
             'NAME': 'Council District',
             **CENSUS_METRIC_MAPPING
         }
     
     elif st.session_state.view_level == 'Precinct':
-        cols_to_show = ['PRECINCT_UNIQUE_ID', 'POP20'] + census_display_names
+        cols_to_show = ['PRECINCT_UNIQUE_ID', 'PRECINCT_I', 'POP20'] + census_display_names
         sort_col = target_sort_name
         rename_dict = {
             'POP20': 'Population',
+            'PRECINCT_I': 'Precinct Name',
             **CENSUS_METRIC_MAPPING
         }
     
@@ -268,21 +291,21 @@ if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
     
     # We use st.dataframe's column_config to rename columns for display 
     # without actually changing the underlying dataframe column names.
-    event = st.dataframe(
-        df_visible, 
-        use_container_width=True, 
-        on_select="rerun" if not is_level_4 else "ignore",
-        selection_mode=mode,
-        hide_index=True,
-        column_config={
-            "NAME": "Council District",
-            # "PRECINCT_UNIQUE_ID": "Precinct ID",
+    base_config = {
             "GEOID20": "Block Group ID",
             "POP20": "Population",
             "TOTAL_POP20": "Total Population",
             "PSTLADDRESS": "Address",
             "BLOCK_GEOID20": "Parent Block"
         }
+    column_config = {**base_config, **rename_dict}
+    event = st.dataframe(
+        df_visible, 
+        use_container_width=True, 
+        on_select="rerun" if not is_level_4 else "ignore",
+        selection_mode=mode,
+        hide_index=True,
+        column_config= column_config
     )
 
     # 4. Drill-Down Logic (Now works because names are stable)
@@ -290,7 +313,6 @@ if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
         selected_row_index = event.selection.rows[0]
         
         # Get the technical data from the visible dataframe
-        # df_visible still has columns like 'PRECINCT_UNIQUE_ID'
         selected_row = df_visible.iloc[selected_row_index]
         
         if st.session_state.view_level == 'District':
