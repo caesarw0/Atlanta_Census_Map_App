@@ -188,7 +188,7 @@ else:
     m = folium.Map(
         location=map_center, 
         zoom_start=zoom, 
-        tiles='CartoDB positron', 
+        tiles='OpenStreetMap', 
         control_scale=True
     )
 
