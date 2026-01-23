@@ -166,7 +166,7 @@ bounds = display_gdf.total_bounds
 map_center = [(bounds[1] + bounds[3])/2, (bounds[0] + bounds[2])/2]
 
 # Display the cards
-col1, col2, col3 = st.columns(3)
+col1, col2 = st.columns(2)
 with col1:
     st.metric(label=summary_pop_label, value=f"{int(summary_pop):,}")
 if st.session_state.view_level in ['District', 'Precinct', 'Block']:
@@ -291,21 +291,37 @@ if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
     
     # We use st.dataframe's column_config to rename columns for display 
     # without actually changing the underlying dataframe column names.
+    # 3. Configuration Setup
     base_config = {
-            "GEOID20": "Block Group ID",
-            "POP20": "Population",
-            "TOTAL_POP20": "Total Population",
-            "PSTLADDRESS": "Address",
-            "BLOCK_GEOID20": "Parent Block"
-        }
-    column_config = {**base_config, **rename_dict}
+        "GEOID20": "Block Group ID",
+        "POP20": st.column_config.NumberColumn("Population", format="%d"),
+        "PSTLADDRESS": "Address",
+        "BLOCK_GEOID20": "Parent Block",
+        "PRECINCT_UNIQUE_ID": None, # Hide technical ID if desired
+    }
+    
+    combined_config = {**base_config}
+
+    # Iterate through every column in the visible dataframe
+    for col in df_visible.columns:
+        # Check if this column is one of our Census metrics (using the display names)
+        if col in census_display_names:
+            combined_config[col] = st.column_config.NumberColumn(
+                col,
+                format="%.1f%%" 
+            )
+        elif col in rename_dict:
+            # For non-census columns in our rename dict, use the mapped name
+            combined_config[col] = rename_dict[col]
+
+    # 4. Render the table
     event = st.dataframe(
         df_visible, 
         use_container_width=True, 
         on_select="rerun" if not is_level_4 else "ignore",
         selection_mode=mode,
         hide_index=True,
-        column_config= column_config
+        column_config=combined_config
     )
 
     # 4. Drill-Down Logic (Now works because names are stable)
