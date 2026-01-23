@@ -94,7 +94,7 @@ if 'sel_block' not in st.session_state:
     st.session_state.sel_block = None
 
 # 3. HEADER & NAVIGATION
-nav_cols = st.columns([1, 1, 1, 1, 3])
+nav_cols = st.columns([1, 2, 2, 2, 3])
 
 with nav_cols[0]:
     if st.button("🏙️ City"):
@@ -111,7 +111,7 @@ if st.session_state.sel_dist:
 
 if st.session_state.sel_prec:
     with nav_cols[2]:
-        if st.button(f"📍 Prec {st.session_state.sel_prec.split('_')[-1]}"):
+        if st.button(f"📍 Precinct {st.session_state.sel_prec.split('_')[-1][3:]}"):
             st.session_state.view_level = 'Block'
             st.session_state.sel_block = None
             st.rerun()
@@ -133,7 +133,7 @@ if st.session_state.view_level == 'District':
 elif st.session_state.view_level == 'Precinct':
     display_gdf = prec_gdf[prec_gdf['COUNCIL_DISTRICT_ID'].astype(str) == str(st.session_state.sel_dist)]
     zoom = 13
-    tooltip_fields = ['PRECINCT_UNIQUE_ID', 'POP20', CENSUS_METRIC_MAPPING['TSRR001_008']]
+    tooltip_fields = ['PRECINCT_I', 'POP20', CENSUS_METRIC_MAPPING['TSRR001_008']]
     parent_district = dist_gdf[dist_gdf['NAME'] == st.session_state.sel_dist]
     summary_pop = parent_district['POP20'].iloc[0] if not parent_district.empty else 0
     summary_rate = parent_district[CENSUS_METRIC_MAPPING['TSRR001_008']].mean()
@@ -218,7 +218,7 @@ folium.GeoJson(
 
 # 6. LABELS (Optimized)
 if st.session_state.view_level != 'Parcel':
-    label_map = {'District': 'NAME', 'Precinct': 'DISTRICT', 'Block': 'BLOCKCE20'}
+    label_map = {'District': 'NAME', 'Precinct': 'PRECINCT_I', 'Block': 'BLOCKCE20'}
     label_col = label_map[st.session_state.view_level]
     
     for _, row in display_gdf.iterrows():
@@ -261,10 +261,11 @@ if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
         }
     
     elif st.session_state.view_level == 'Precinct':
-        cols_to_show = ['PRECINCT_UNIQUE_ID', 'POP20'] + census_display_names
+        cols_to_show = ['PRECINCT_UNIQUE_ID', 'PRECINCT_I', 'POP20'] + census_display_names
         sort_col = target_sort_name
         rename_dict = {
             'POP20': 'Population',
+            'PRECINCT_I': 'Precinct Name',
             **CENSUS_METRIC_MAPPING
         }
     
@@ -290,21 +291,21 @@ if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
     
     # We use st.dataframe's column_config to rename columns for display 
     # without actually changing the underlying dataframe column names.
-    event = st.dataframe(
-        df_visible, 
-        use_container_width=True, 
-        on_select="rerun" if not is_level_4 else "ignore",
-        selection_mode=mode,
-        hide_index=True,
-        column_config={
-            "NAME": "Council District",
-            # "PRECINCT_UNIQUE_ID": "Precinct ID",
+    base_config = {
             "GEOID20": "Block Group ID",
             "POP20": "Population",
             "TOTAL_POP20": "Total Population",
             "PSTLADDRESS": "Address",
             "BLOCK_GEOID20": "Parent Block"
         }
+    column_config = {**base_config, **rename_dict}
+    event = st.dataframe(
+        df_visible, 
+        use_container_width=True, 
+        on_select="rerun" if not is_level_4 else "ignore",
+        selection_mode=mode,
+        hide_index=True,
+        column_config= column_config
     )
 
     # 4. Drill-Down Logic (Now works because names are stable)
@@ -312,7 +313,6 @@ if st.session_state.view_level in ['District', 'Precinct', 'Block', 'Parcel']:
         selected_row_index = event.selection.rows[0]
         
         # Get the technical data from the visible dataframe
-        # df_visible still has columns like 'PRECINCT_UNIQUE_ID'
         selected_row = df_visible.iloc[selected_row_index]
         
         if st.session_state.view_level == 'District':
